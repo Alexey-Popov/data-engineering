@@ -1,0 +1,5 @@
+pandas>=1.5.0
+sqlalchemy
+pymysql
+mysql-connector-python>=8.0.0
+chardet>=4.0.0

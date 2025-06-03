@@ -1,0 +1,57 @@
+// script for visualisation of schema on https://dbdiagram.io/
+// Advertiser Table
+Table advertiser {
+  id int [pk, increment]
+  name varchar [unique, not null]
+}
+
+// Campaign Table
+Table campaign {
+  id int [pk]
+  advertiser_id int [ref: > advertiser.id]
+  name varchar
+  start_date date
+  end_date date
+  targeting_criteria text
+  ad_slot_size varchar
+  budget decimal
+  remaining_budget decimal
+}
+
+// User Profile Table
+Table user_profile {
+  id bigint [pk]
+  age int
+  gender varchar
+  location varchar
+  interests text
+  signup_date date
+}
+
+// Ad Event Table
+Table ad_event {
+  id uuid [pk]
+  campaign_id int [ref: > campaign.id]
+  user_id bigint [ref: > user_profile.id]
+  device varchar
+  location varchar
+  timestamp datetime
+  bid_amount decimal
+  ad_cost decimal
+  was_clicked boolean
+  click_timestamp datetime
+  ad_revenue decimal
+}
+
+// (Optional) Interest Table - only if you normalize user interests
+Table interest {
+  id int [pk, increment]
+  name varchar [unique]
+}
+
+Table user_interest {
+  user_id bigint [ref: > user_profile.id]
+  interest_id int [ref: > interest.id]
+  Note: "Composite PK of user and interest"
+  primary key (user_id, interest_id)
+}
