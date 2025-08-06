@@ -1,0 +1,160 @@
+services:
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_DELETE_TOPIC_ENABLE: 'true'
+
+  # Cassandra
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=wikipedia_cluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+      - ./init-cassandra.cql:/docker-entrypoint-initdb.d/init-cassandra.cql:ro
+    command: ["cassandra", "-f"]
+
+  # Spark Master
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+
+  # Spark Worker
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+
+  # Wikipedia Stream Generator
+  wikipedia-generator:
+    build: .
+    container_name: wikipedia-generator
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: input
+      DURATION_SECONDS: 600
+    restart: unless-stopped
+    command: ["python", "wikipedia_stream_generator.py"]
+
+  # Spark Streaming Processor
+  spark-processor:
+    build: .
+    container_name: spark-processor
+    depends_on:
+      - kafka
+      - spark-master
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INPUT_TOPIC: input
+      OUTPUT_TOPIC: processed
+      DURATION_SECONDS: 600
+    volumes:
+      - ./checkpoint:/tmp/checkpoint
+    restart: unless-stopped
+    command: ["python", "spark_streaming_processor.py"]
+
+  # Spark Streaming Cassandra Writer
+  spark-cassandra-writer:
+    build: .
+    container_name: spark-cassandra-writer
+    depends_on:
+      - kafka
+      - cassandra
+      - spark-master
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      PROCESSED_TOPIC: processed
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: 9042
+      DURATION_SECONDS: 600
+    volumes:
+      - ./checkpoint:/tmp/checkpoint
+    restart: unless-stopped
+    command: ["python", "spark_streaming_cassandra_writer.py"]
+
+  # Kafka Console Consumer for verification
+  kafka-console-consumer-input:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-console-consumer-input
+    depends_on:
+      - kafka
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...'
+        cub kafka-ready -b kafka:29092 1 30
+        echo 'Starting console consumer for input topic...'
+        kafka-console-consumer --bootstrap-server kafka:29092 --topic input --from-beginning
+      "
+    restart: unless-stopped
+
+  # Kafka Console Consumer for processed topic
+  kafka-console-consumer-processed:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-console-consumer-processed
+    depends_on:
+      - kafka
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...'
+        cub kafka-ready -b kafka:29092 1 30
+        echo 'Starting console consumer for processed topic...'
+        kafka-console-consumer --bootstrap-server kafka:29092 --topic processed --from-beginning
+      "
+    restart: unless-stopped
+
+volumes:
+  cassandra_data: 
