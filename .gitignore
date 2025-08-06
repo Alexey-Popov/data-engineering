@@ -2,7 +2,7 @@
 hw1/etl/data/ad_events.csv
 /*.csv 
 hw6/cleaned_amazon_reviews.csv
-
+hw7/data/
 
 # Virtual Environment
 venv/
