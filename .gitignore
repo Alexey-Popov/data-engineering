@@ -1,5 +1,8 @@
 # Data
 hw1/etl/data/ad_events.csv
+/*.csv 
+hw6/cleaned_amazon_reviews.csv
+
 
 # Virtual Environment
 venv/
